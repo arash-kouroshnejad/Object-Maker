@@ -30,3 +30,5 @@ bin/
 
 .idea
 *.iml
+/src/ir/sharif/math/ap2023/hw7/models/basicSample/
+/src/ir/sharif/math/ap2023/hw7/models/urlSample/
