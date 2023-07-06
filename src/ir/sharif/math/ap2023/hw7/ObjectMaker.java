@@ -57,8 +57,7 @@ public class ObjectMaker {
         clazz = out.getClass();
 
         // Getting all the fields
-        Set<Field> fields = new HashSet<>(Arrays.asList(clazz.getDeclaredFields()));
-        fields.addAll(getSuperFields(clazz));
+        Set<Field> fields = getAllFields(clazz);
 
 
         for (Field field : fields) {
@@ -115,8 +114,8 @@ public class ObjectMaker {
         return out;
     }
 
-    private Set<Field> getSuperFields(Class<?> clazz) {
-        Set<Field> fields = new HashSet<Field>();
+    private Set<Field> getAllFields(Class<?> clazz) {
+        Set<Field> fields = new HashSet<>(Arrays.asList(clazz.getDeclaredFields()));
         Class superClazz = clazz.getSuperclass();
         while (superClazz != null) {
             fields.addAll(Arrays.asList(superClazz.getDeclaredFields()));
@@ -169,7 +168,77 @@ public class ObjectMaker {
         return out;
     }
 
-    private void finish() {
+    private void finish() throws ReflectiveOperationException{
+        for (Node<Container> node : queue.queue) {
+            Node<Container> tmp = node;
+            Container container = node.getData();
+            SetValue setValue = container.field.getAnnotation(SetValue.class);
+            String path = setValue.path();
+            Object current = container.declaring;
+            while (!path.equals("")) {
+                if (path.charAt(0) == '.') {
+                    path = path.substring(3); // ../ -> 3 chars
+                    // move node and current to parent
+                    node = node.getParent();
+                    current = node.getData().declaring;
+                }
+                else if (path.charAt(0) == '/'){ // /x/ or /x or /..
+                    int i = 1;
+                    for (; i < path.length(); i++)
+                        if (path.charAt(i) == '/' || path.charAt(i) == '.')
+                            break;
 
+
+                    i = (i == path.length() - 1) ? i + 1 : i;
+                    /* the last character cant be a / or a . and it
+                    must be part of a name and I need an empty String after that */
+
+
+                    String nameToResolve = path.substring(1, i);
+                    path = path.substring(i);
+                    // move node and current to new-found child
+                    for (Node<Container> child : node.getChildren()) {
+                        Name nameAnnotation = child.getData().field.getAnnotation(Name.class);
+                        if (nameAnnotation != null && nameAnnotation.name().equals(nameToResolve)
+                                || child.getData().field.getName().equals(nameToResolve)) {
+                            node = child;
+                            current = child.getData().declaring;
+                            break;
+                        }
+                    }
+                }
+                else {
+                    int i = 1;
+                    for (; i < path.length(); i++)
+                        if (path.charAt(i) == '/' || path.charAt(i) == '.')
+                            break;
+
+                    i = (i == path.length() - 1) ? i + 1 : i;
+                    /* the last character cant be a / or a . and it
+                    must be part of a name and I need an empty String after that */
+
+
+                    String nameToResolve = path.substring(0, i);
+                    path = path.substring(i);
+                    // move node and current to same-level sister
+
+
+                    // first : move the node pointer to parent node
+                    // second : find the child like before
+                    // third reassign the node
+                    node = node.getParent();
+                    for (Node<Container> child : node.getChildren()) {
+                        Name nameAnnotation = child.getData().field.getAnnotation(Name.class);
+                        if (nameAnnotation != null && nameAnnotation.name().equals(nameToResolve)
+                                || child.getData().field.getName().equals(nameToResolve)) {
+                            node = child;
+                            current = child.getData().declaring;
+                            break;
+                        }
+                    }
+                }
+            }
+            tmp.getData().field.set(tmp.getData().declaring, node.getData().field.get(current));
+        }
     }
 }
