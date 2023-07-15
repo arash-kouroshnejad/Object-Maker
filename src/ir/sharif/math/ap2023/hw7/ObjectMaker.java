@@ -32,6 +32,8 @@ public class ObjectMaker {
 
     private static Node<Container> current;
 
+    private List<Node<Container>> trees = new ArrayList<>();
+
 
     public ObjectMaker(URL... urls) {
         classLoader =  new URLClassLoader(urls);
@@ -43,6 +45,7 @@ public class ObjectMaker {
         if (layer == 0) {
             treeHead = new Node<>(new Container(null, null));
             current = treeHead;
+            trees.add(current);
         }
 
         layer++;
@@ -65,13 +68,12 @@ public class ObjectMaker {
 
 
             // Skipping final-statics
-            if (Modifier.isStatic(field.getModifiers()) && Modifier.isFinal(field.getModifiers()))
+            if (Modifier.isStatic(field.getModifiers()))
                 continue;
 
             // New node
             Node<Container> node = new Node<>(new Container(field, out));
-            current.addChild(node);
-
+            trees.get(trees.size() - 1).addChild(node);
 
             // Skipping the value-set fields
             SetValue annotation = field.getAnnotation(SetValue.class);
@@ -93,10 +95,10 @@ public class ObjectMaker {
             if (primitiveClasses.contains(field.getType()))
                 field.set(out, values.get(nameToResolve));
             else if (!List.class.isAssignableFrom(values.get(nameToResolve).getClass())) {
-                Node tmp = current;
-                current = node;
+                Node tmp = trees.get(trees.size() - 1);
+                trees.set(trees.size() - 1, node);
                 field.set(out, makeObject((Map) values.get(nameToResolve), field.getType().getName()));
-                current = tmp;
+                trees.set(trees.size() - 1, tmp);
             } else
                 field.set(out, resolveList((List) values.get(nameToResolve), field.getType().getComponentType()));
         }
@@ -105,16 +107,8 @@ public class ObjectMaker {
         layer--;
 
         // Finishing the value-set fields
-        if (layer == 0) {
-            // TODO : FINALIZE
-            try {
-                finish();
-            } catch (IllegalArgumentException e) {
-                try {
-                    Thread.sleep(1500);
-                } catch (Exception ignored) {}
-            }
-        }
+        if (layer == 0)
+            finish();
 
 
         return out;
@@ -144,12 +138,14 @@ public class ObjectMaker {
         int size = list.size();
         Object array = Array.newInstance(componentType, size);
         for (int i = 0; i < size; i++) {
+            trees.add(new Node(new Container(null, null)));
             if (primitiveClasses.contains(componentType))
                 Array.set(array, i, list.get(i));
             else if (!List.class.isAssignableFrom(list.get(i).getClass()))
                 Array.set(array, i, makeObject((Map) list.get(i), componentType.getName()));
             else
                 Array.set(array, i, resolveList((List) list.get(i), componentType.getComponentType()));
+            trees.remove(trees.size() - 1);
         }
         return array;
     }
@@ -185,18 +181,22 @@ public class ObjectMaker {
     }
 
     private void finish() throws ReflectiveOperationException{
+        outer:
         for (Node<Container> node : queue.queue) {
             Node<Container> tmp = node;
             Container container = node.getData();
             SetValue setValue = container.field.getAnnotation(SetValue.class);
             String path = setValue.path();
             Object current = container.declaring;
-            if (path.equals("")) {
+            if (path.equals(""))
                 node.getData().field.set(node.getData().declaring, node.getData().declaring);
-            }
             else {
                 while (!path.equals("")) {
-                    if (path.charAt(0) == '.') {
+                    if (path.equals("..")) {
+                        tmp.getData().field.set(tmp.getData().declaring, node.getParent().getData().declaring);
+                        continue outer;
+                    }
+                    else if (path.charAt(0) == '.') {
                         path = path.substring(3); // ../ -> 3 chars
                         // move node and current to parent
                         node = node.getParent();
@@ -210,8 +210,8 @@ public class ObjectMaker {
 
 
                         i = (i == path.length() - 1) ? i + 1 : i;
-                    /* the last character cant be a / or a . and it
-                    must be part of a name and I need an empty String after that */
+                        // the last character cant be a / or a . and it
+                        // must be part of a name and I need an empty String after that
 
 
                         String nameToResolve = path.substring(1, i);
@@ -234,8 +234,8 @@ public class ObjectMaker {
                                 break;
 
                         i = (i == path.length() - 1) ? i + 1 : i;
-                    /* the last character cant be a / or a . and it
-                    must be part of a name and I need an empty String after that */
+                        // the last character cant be a / or a . and it
+                        // must be part of a name and I need an empty String after that
 
 
                         String nameToResolve = path.substring(0, i);
@@ -258,7 +258,7 @@ public class ObjectMaker {
                         }
                     }
                 }
-                tmp.getData().field.set(tmp.getData().declaring, node.getData().field.get(current));
+                tmp.getData().field.set(tmp.getData().declaring, node.getData().field.get(node.getData().declaring));
             }
         }
     }
